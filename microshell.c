@@ -1,48 +1,60 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   microshell.c                                       :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: youlee <youlee@student.42seoul.kr>         +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2021/03/01 17:04:19 by youlee            #+#    #+#             */
+/*   Updated: 2021/03/01 18:24:23 by youlee           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <stdlib.h>
 
-#define		PIPE_OUT	0
-#define		PIPE_IN		1
+#define PIPEOUT 0
+#define PIPEIN 1
 
-#define		STD_IN		0
-#define		STD_OUT		1
-#define		STD_ERR		2
+#define STDIN 0
+#define STDOUT 1
+#define STDERR 2
 
-#define		END			0
-#define		PIPE		1
-#define		BREAK		2
+#define TYPEEND 0
+#define TYPEPIPE 1
+#define TYPEBREAK 2
 
-#ifndef TEST_SH
-#define TEST 1
+#ifdef TEST_SH
+# define TEST	1
 #else
-#define TEST 0
+# define TEST	0
 #endif
 
-typedef struct	s_micro
+typedef struct s_list
 {
-	char			**str;
-	int				len;
-	int				type;
-	int				pipes[2];
-	struct s_micro	*next;
-	struct s_micro	*prev;
-}				t_micro;
+	char		**args;
+	int			len;
+	int			type;
+	int			pipes[2];
+	struct s_list	*next;
+	struct s_list	*prev;
+}				t_list;
 
-int		ft_strlen(char *str)
+int		ft_strlen(char const *str)
 {
-	int si;
+	int i;
 
-	si = 0;
-	while (str[si])
-		si++;
-	return (si);
+	i = 0;
+	while (str[i])
+		i++;
+	return (i);
 }
-//error function
-int		show_error(char *str)
+
+int		show_error(char const *str)
 {
 	if (str)
-		write(STD_ERR, str, ft_strlen(str));
+		write(STDERR, str, ft_strlen(str));
 	return (EXIT_FAILURE);
 }
 
@@ -60,15 +72,12 @@ void	*exit_fatal_ptr(void)
 	return (NULL);
 }
 
-//string function
-
-
-char	*ft_strdup(char *str)
+char	*ft_strdup(char const *str)
 {
-	char	*ret;
+	char *ret;
 	int		i;
 
-	if(!(ret = (char*)malloc(sizeof(*ret) * (ft_strlen(str) + 1))))
+	if (!(ret = (char*)malloc(sizeof(*ret) * (ft_strlen(str) + 1))))
 		return (exit_fatal_ptr());
 	i = 0;
 	while (str[i])
@@ -80,112 +89,107 @@ char	*ft_strdup(char *str)
 	return (ret);
 }
 
-
-
-//list function
-int		add_str(t_micro *new, char *str)
+int		add_arg(t_list *cmd, char *arg)
 {
 	char	**temp;
 	int		i;
 
 	i = 0;
 	temp = NULL;
-	if (!(temp = (char**)malloc(sizeof(*temp) * (new->len + 2))))
+	if (!(temp = (char**)malloc(sizeof(*temp) * (cmd->len + 2))))
 		return (exit_fatal());
-	while (i < new->len)
+	while (i < cmd->len)
 	{
-		temp[i] = new->str[i];
+		temp[i] = cmd->args[i];
 		i++;
 	}
-	if (new->len > 0)
-		free(new->str);
-	new->str = temp;
-	new->str[i++] = ft_strdup(str);
-	new->str[i] = 0;
-	new->len++;
+	if (cmd->len > 0)
+		free(cmd->args);
+	cmd->args = temp;
+	cmd->args[i++] = ft_strdup(arg);
+	cmd->args[i] = 0;
+	cmd->len++;
 	return (EXIT_SUCCESS);
 }
 
-int		list_push(t_micro **list, char *str)
+int		list_push(t_list **list, char *arg)
 {
-	t_micro *new;
-	
-	if (!(new = (t_micro*)malloc(sizeof(*new))))
+	t_list *new;
+
+	if (!(new = (t_list*)malloc(sizeof(*new))))
 		return (exit_fatal());
-	new->str = NULL;
+	new->args = NULL;
 	new->len = 0;
-	new->next = NULL;
+	new->type = TYPEEND;
 	new->prev = NULL;
-	new->type = END;
-	
+	new->next = NULL;
 	if (*list)
 	{
 		(*list)->next = new;
 		new->prev = *list;
 	}
 	*list = new;
-	return (add_str(new, str));
+	return (add_arg(new, arg));
 }
 
-int		list_back(t_micro **list)
+int		list_back(t_list **list)
 {
 	while (*list && (*list)->prev)
 		*list = (*list)->prev;
 	return (EXIT_SUCCESS);
 }
 
-int		list_clear(t_micro **list)
+int		list_clear(t_list **cmds)
 {
-	t_micro *temp;
+	t_list	*temp;
 	int		i;
 
-	list_back(list);
-	while (*list)
+	list_back(cmds);
+	while (*cmds)
 	{
-		temp = (*list)->next;
+		temp = (*cmds)->next;
 		i = 0;
-		while (i < (*list)->len)
-			free((*list)->str[i++]);
-		free((*list)->str);
-		free(*list);
-		*list = temp;
+		while (i < (*cmds)->len)
+			free((*cmds)->args[i++]);
+		free((*cmds)->args);
+		free(*cmds);
+		*cmds=temp;
 	}
-	*list = NULL;
+	*cmds=NULL;
 	return (EXIT_SUCCESS);
 }
 
-//exec function
-int		parse_arg(t_micro **list, char *av)
+int		parse_arg(t_list **list, char *arg)
 {
-	int	is_break;
+	int		is_break;
 
-	is_break = (strcmp(";", av) == 0);
+	is_break = (strcmp(";", arg) == 0);
 	if (is_break && !*list)
 		return (EXIT_SUCCESS);
-	else if (!is_break && (!*list || (*list)->type > END))
-		return (list_push(list, av));
-	else if (strcmp("|", av) == 0)
-		(*list)->type = PIPE;
+	else if (!is_break && (!*list || (*list)->type > TYPEEND))
+		return (list_push(list, arg));
+	else if (strcmp("|", arg) == 0)
+		(*list)->type = TYPEPIPE;
 	else if (is_break)
-		(*list)->type = BREAK;
+		(*list)->type = TYPEBREAK;
 	else
-		return (add_str(*list, av));
+		return (add_arg(*list, arg));
 	return (EXIT_SUCCESS);
 }
 
-int		exec_cmd(t_micro *list, char **ev)
+int	exec_cmd(t_list *cmd, char **env)
 {
-	pid_t	pid;
+	pid_t pid;
 	int		ret;
 	int		status;
 	int		pipe_open;
 
 	ret = EXIT_FAILURE;
 	pipe_open = 0;
-	if (list->type == PIPE || (list->prev && list->prev->type == PIPE))
+	if (cmd->type == TYPEPIPE || (cmd->prev && cmd->prev->type == TYPEPIPE))
 	{
 		pipe_open = 1;
-		if (pipe(list->pipes))
+		if (pipe(cmd->pipes))
 			return (exit_fatal());
 	}
 	pid = fork();
@@ -193,16 +197,16 @@ int		exec_cmd(t_micro *list, char **ev)
 		return (exit_fatal());
 	else if (pid == 0)
 	{
-		if (list->type == PIPE 
-				&& dup2(list->pipes[PIPE_IN], STD_OUT) < 0)
+		if (cmd->type == TYPEPIPE
+				&& dup2(cmd->pipes[PIPEIN], STDOUT) < 0)
 			return (exit_fatal());
-		if (list->prev && list->prev->type == PIPE 
-				&& dup2(list->prev->pipes[PIPE_OUT], STD_IN) < 0)
+		if (cmd->prev && cmd->prev->type == TYPEPIPE
+				&& dup2(cmd->prev->pipes[PIPEOUT], STDIN) < 0)
 			return (exit_fatal());
-		if ((ret = execve(list->str[0], list->str, ev)) < 0)
+		if ((ret = execve(cmd->args[0], cmd->args, env)) < 0)
 		{
 			show_error("error: cannot execute ");
-			show_error(list->str[0]);
+			show_error(cmd->args[0]);
 			show_error("\n");
 		}
 		exit(ret);
@@ -212,21 +216,20 @@ int		exec_cmd(t_micro *list, char **ev)
 		waitpid(pid, &status, 0);
 		if (pipe_open)
 		{
-			close(list->pipes[PIPE_IN]);
-			if (!list->next || list->type == BREAK)
-				close(list->pipes[PIPE_OUT]);
+			close(cmd->pipes[PIPEIN]);
+			if (!cmd->next || cmd->type == TYPEBREAK)
+				close(cmd->pipes[PIPEOUT]);
 		}
-		if (list->prev && list->prev->type == PIPE)
-			close(list->prev->pipes[PIPE_OUT]);
+		if (cmd->prev && cmd->prev->type == TYPEPIPE)
+			close(cmd->prev->pipes[PIPEOUT]);
 		if (WIFEXITED(status))
-			ret = WEXITSTATUS(status);
+			ret = WEXITSTATUS(status);	
 	}
 	return (ret);
 }
-
-int		exec_cmds(t_micro **list, char **ev)
+int	exec_cmds(t_list **list, char**env)
 {
-	t_micro	*crt;
+	t_list *crt;
 	int		ret;
 
 	ret = EXIT_SUCCESS;
@@ -234,43 +237,41 @@ int		exec_cmds(t_micro **list, char **ev)
 	while (*list)
 	{
 		crt = *list;
-		if (strcmp("cd", crt->str[0]) == 0)
+		if (strcmp("cd", crt->args[0]) == 0)
 		{
 			ret = EXIT_SUCCESS;
 			if (crt->len < 2)
 				ret = show_error("error: cd: bad arguments\n");
-			else if (chdir(crt->str[1]))
+			else if (chdir(crt->args[1]))
 			{
 				ret = show_error("error: cd: cannot change directory to ");
-				show_error(crt->str[1]);
+				show_error(crt->args[1]);
 				show_error("\n");
 			}
 		}
 		else
-			ret = exec_cmd(crt, ev);
+			ret = exec_cmd(crt, env);
 		if (!(*list)->next)
 			break ;
 		*list = (*list)->next;
 	}
 	return (ret);
 }
-
-
 int main(int ac, char **av, char **ev)
 {
-	t_micro *list;
+	t_list	*cmds;
 	int		i;
 	int		ret;
-	
+
 	ret = EXIT_SUCCESS;
-	list = NULL;
 	i = 1;
+	cmds = NULL;
 	while (i < ac)
-		parse_arg(&list, av[i++]);
-	if (list)
-		ret = exec_cmds(&list, ev);
-	list_clear(&list);
-	//if (TEST)
-	//	while (1);
-	return (ret);	
+		parse_arg(&cmds, av[i++]);
+	if (cmds)
+		ret = exec_cmds(&cmds, ev);
+	list_clear(&cmds);
+	if (TEST)
+		while (1);
+	return (ret);
 }
